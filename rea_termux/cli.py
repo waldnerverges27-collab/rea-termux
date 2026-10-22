@@ -1064,6 +1064,14 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_gui(args: argparse.Namespace) -> int:
+    """Abre el panel web local para ejecutar el flujo sin encadenar comandos."""
+    from .gui import run_gui
+    return run_gui(config_path=getattr(args, "config", None),
+                   port=getattr(args, "port", 8765),
+                   open_browser=not getattr(args, "no_open", False))
+
+
 # --------------------------------------------------------------------- parser
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -1220,6 +1228,11 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("status", help="estado y memoria del proyecto")
     s.add_argument("workspace")
     s.set_defaults(func=cmd_status)
+
+    s = sub.add_parser("gui", help="abre el panel gráfico local en el navegador")
+    s.add_argument("--port", type=int, default=8765, help="puerto local (0 = elegir uno libre)")
+    s.add_argument("--no-open", action="store_true", help="no abrir el navegador automáticamente")
+    s.set_defaults(func=cmd_gui)
 
     s = sub.add_parser("report", help="regenera ANALYSIS.md desde los artefactos")
     s.add_argument("workspace")

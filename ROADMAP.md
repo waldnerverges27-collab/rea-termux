@@ -10,7 +10,7 @@ Referencias: `archivo:línea` aproximada y módulo afectado.
 - **Tier 0 — HECHO y validado contra REA 6.7.0 real y el APK `org.fdroid.fdroid` 1.21.1.**
   Ver "Hallazgos reales" al final del Tier 0.
 - **Tier 1.1–1.7 — HECHOS**: autocorrección de build, versionado, streaming, salidas estructuradas, visión, layout y análisis estático de APK.
-- **Siguiente: Tier 1.8 — navegación real e internacionalización.**
+- **Siguiente: Tier 1.8 — panel web local para reducir pasos de terminal.**
 
 ## Tier 0 — Validar antes de seguir añadiendo (riesgo alto, coste bajo)
 
@@ -94,7 +94,13 @@ El plan y los análisis dependen de prosa. Usar `response_format: {type: json_sc
 - Artefactos `STATIC_ANALYSIS.md/.json` se generan aun con `--no-agent`; REA aporta el XML del manifest cuando está disponible.
 - Pruebas sobre APK ZIP sintéticos y prueba real de lectura de `org.fdroid.fdroid` 1.21.1; los hallazgos estáticos se presentan como indicios, no como comportamiento probado.
 
-### 1.8 Navegación y recursos del proyecto generado
+### 1.8 ✅ Panel gráfico local (web) — primera versión implementada
+- Nuevo `rea-termux gui`: asistente móvil autocontenido, loopback-only y sin framework/CDN; token local, endpoints allowlisted y trabajos con progreso/log.
+- Flujo visual: subir APK → declarar reimplementación propia + analizar → capturar pantallas opcionalmente → entrevista visual → revisar plan → aprobar build → chat/verificación.
+- Retoma el workspace analizado más reciente al reiniciar el panel; los comandos CLI siguen disponibles para automatización y diagnóstico.
+- Pruebas: helpers, guardas de ruta, servidor HTTP local, autorización de sesión y carga de página. **Pendiente validación visual en Android/Termux real.**
+
+### 1.9 Navegación y recursos del proyecto generado
 - `AppRoot.kt` usa un `var current` a mano: generar un **NavHost** real (Compose Navigation / go_router / react-router) con el grafo deducido de actividades + orden de capturas.
 - **i18n**: extraer textos a `strings.xml` / ARB / JSON de traducciones en vez de hardcodearlos en el código.
 - Valor: medio-alto (el esqueleto pasa a ser una app). Esfuerzo: 6 h.

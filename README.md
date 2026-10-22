@@ -92,6 +92,28 @@ bash scripts/termux-bootstrap.sh --android-tools
 ./rea-termux init && ./rea-termux doctor
 ```
 
+## Panel gráfico local (recomendado)
+
+En lugar de ejecutar cada etapa por separado, inicia el panel una vez:
+
+```bash
+./rea-termux gui
+```
+
+Se abre en el navegador del teléfono. Desde una sola pantalla puedes subir el APK,
+ver el avance del análisis, capturar pantallas actuales con ADB, completar la
+entrevista visual, revisar el `CLONE_PLAN.md` y aprobar la generación. El panel
+se detiene antes de construir para que confirmes el plan; después ofrece chat,
+verificación y estado del workspace. Al volver a abrirlo, intenta reanudar el
+workspace analizado más recientemente. Los comandos siguen disponibles para
+automatización y diagnóstico avanzado.
+
+El servidor usa solo la biblioteca estándar de Python, escucha en `127.0.0.1`
+y requiere un token de sesión local; no expone el panel a la red. No usa CDNs ni
+servicios externos para su interfaz. Las capturas se procesan localmente, salvo
+que actives el botón de análisis visual opcional, que puede enviarlas al proveedor
+multimodal configurado.
+
 ## Proveedores (9router / Omniroute)
 
 ```bash
@@ -356,10 +378,10 @@ Herramientas que el agente tiene en el chat (además de las de REA):
 ## Estado y pruebas
 
 ```bash
-python -m pytest -q     # 50 pruebas
+python -m pytest -q     # 137 pruebas
 ```
 
-Cubren: cliente MCP contra servidor stdio falso, agente con proveedor OpenAI simulado y fallback entre proveedores, parser AXML, paleta PNG + tema con contraste, parser de `uiautomator`, wireframe, generación de código por stack, memoria (upsert, poda, digest), sesión persistente (memoria inyectada, reanudación, jail de rutas). Probado end-to-end con APK sintético, `adb`/`npx` simulados y proveedor local; falta validarlo contra un APK real y equipo real.
+Cubren cliente MCP, fallback entre proveedores, análisis APK, herramientas Android, UI/capturas, generación por stack, memoria/sesiones, auto-reparación, Git y servidor gráfico local (loopback, token y endpoints). La integración gráfica se probó en el sandbox; falta validarla en un teléfono Termux real y conectar el navegador Android/ADB del dispositivo.
 
 ## Licencia
 
