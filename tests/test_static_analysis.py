@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import zipfile
+from pathlib import Path
 
 from rea_termux.static_analysis import (analyze_apk, compare_reports, render_diff_markdown,
                                         render_markdown, shannon_entropy, write_outputs,
@@ -125,6 +126,19 @@ def test_analyze_cli_writes_static_and_diff_artifacts(tmp_path, monkeypatch):
     ws = tmp_path / "workspace"
     ws.mkdir()
     monkeypatch.setattr(cli, "preflight", lambda *a, **k: (True, []))
+    monkeypatch.setattr(cli.android_tools, "process_apk",
+                        lambda apk, out, **kw: {"apk": Path(apk).name, "tool_inventory": {},
+                                                "steps": [], "limitations": [], "artifacts": {},
+                                                "read_only": True})
+    def fake_tool_report(out, report):
+        out = Path(out)
+        out.mkdir(parents=True, exist_ok=True)
+        json_path, md_path = out / "ANDROID_TOOLS.json", out / "ANDROID_TOOLS.md"
+        json_path.write_text(json.dumps(report), encoding="utf-8")
+        md_path.write_text("# fake Android tools report", encoding="utf-8")
+        return {"android_tools_json": json_path, "android_tools_report": md_path}
+
+    monkeypatch.setattr(cli.android_tools, "write_report", fake_tool_report)
     monkeypatch.setattr(cli.rea_cli, "npx_available", lambda: True)
     monkeypatch.setattr(cli.rea_cli, "detect_package_name", lambda *a: "com.example.demo")
 
@@ -142,6 +156,9 @@ def test_analyze_cli_writes_static_and_diff_artifacts(tmp_path, monkeypatch):
     })()
     assert cli.cmd_analyze(args) == 0
     assert (ws / "analysis" / "STATIC_ANALYSIS.md").is_file()
+    assert (ws / "analysis" / "ANDROID_TOOLS.json").is_file()
+    assert (ws / "analysis" / "ANDROID_TOOLS.md").is_file()
+    assert (ws / "analysis" / "diff_other" / "ANDROID_TOOLS.json").is_file()
     assert (ws / "analysis" / "STATIC_DIFF.json").is_file()
     assert (ws / "analysis" / "NOTICE.md").is_file()
     assert (ws / "analysis" / "ANALYSIS.md").is_file()

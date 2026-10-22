@@ -70,10 +70,12 @@ Tres capas, todas en disco:
 | Pieza | Por qué | Cómo |
 |---|---|---|
 | Node.js 22.19+/24.11+/26+ | REA lo exige | `pkg install nodejs` (si no cuadra: proot Debian) |
-| JDK **completo** 17+ | JADX compila un puente en runtime | `pkg install openjdk-17` |
+| JDK **completo** 17+ | JADX/REA y Android Build Tools | `pkg install openjdk-21` (17+ mínimo) |
 | `jadx-headless-mcp` | motor de APKs de REA | `scripts/termux-bootstrap.sh --jadx` (verifica sha256) |
 | `procps` | REA rastrea el proceso JADX | `pkg install procps` |
-| `android-tools` | capturas de UI (`adb`) | `pkg install android-tools` |
+| `android-tools` | capturas, conexión al dispositivo (`adb`) | `pkg install android-tools` |
+| APKTool + Android Build Tools | manifest/resources, badging, firma, alineación | `pkg install apktool aapt apksigner` |
+| Gradle (opcional) | compilación de proyectos Android nuevos | `pkg install gradle` |
 | Python 3.10+ | este CLI | `pkg install python` |
 
 Ghidra, IDA y Hopper son binarios x86: no corren en el teléfono. Para APKs no hacen falta (REA usa JADX).
@@ -81,10 +83,12 @@ Ghidra, IDA y Hopper son binarios x86: no corren en el teléfono. Para APKs no h
 ## Instalación
 
 ```bash
-pkg install git python nodejs npm android-tools
+pkg install git python nodejs npm android-tools aapt apktool apksigner gradle
 pip install httpx
 git clone <tu-repo>/rea-termux && cd rea-termux
 bash scripts/termux-bootstrap.sh
+# solo herramientas Android (alternativa):
+bash scripts/termux-bootstrap.sh --android-tools
 ./rea-termux init && ./rea-termux doctor
 ```
 
@@ -135,6 +139,32 @@ Si algo falla, imprime la acción concreta. Ejemplo real (Java 11):
 ✗   -> Termux:  pkg install openjdk-17
 ✗   -> Verifica:  java -version && java --list-modules | grep jdk.compiler
 ```
+
+### Herramientas Android / APK
+
+El bootstrap instala las herramientas nativas de Termux (`apktool`, `aapt`,
+`apksigner`, `android-tools` y Gradle opcional); `doctor` informa cuáles están
+disponibles. `analyze` las usa automáticamente cuando existen:
+
+- `aapt dump badging`: package y versión como evidencia adicional.
+- `apksigner verify --verbose --print-certs`: verifica la firma; no firma el APK.
+- `zipalign -c -v 4`: comprueba la alineación; no modifica el APK.
+- `apktool d --no-src`: decodifica manifest/recursos para análisis; no decompila
+  fuentes ni instala/ejecuta la app. `--no-apktool` lo omite si se desea.
+- REA/JADX sigue siendo el analizador de código; Apktool complementa recursos y
+  manifest. Si REA no entrega el XML, se intenta usar el manifest de Apktool.
+
+El informe queda en `analysis/ANDROID_TOOLS.md/.json`; las herramientas que no
+estén instaladas son opcionales y se omiten sin bloquear el análisis. El shim
+mínimo `aapt` solo se crea si no hay un binario real; no sobrescribe `aapt` del
+SDK/Termux.
+
+`--android-tools` instala los utilitarios nativos de Termux; **no descarga el
+Android SDK platform completo**. `doctor` busca un platform (`platforms/android-*/android.jar`):
+inspeccionar APKs no lo requiere, pero compilar una app Android sí. Si ya tienes
+el SDK, exporta `ANDROID_HOME` o `ANDROID_SDK_ROOT` a su raíz. El análisis usa
+Build/Platform Tools portadas a Termux, no asume que los binarios x86_64 de
+escritorio funcionen en Android.
 
 ### Analisis estatico local y comparacion
 

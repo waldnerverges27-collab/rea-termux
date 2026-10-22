@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # ---------------------------------------------------------------------------
 # termux-bootstrap.sh — prepara Termux para rea-termux
-#   * paquetes base (nodejs, python, openjdk-17, procps, herramientas)
+#   * paquetes base + Android Build/Platform Tools de Termux
 #   * JADX headless (jar que REA usa para APKs) con verificacion sha256
 #   * shims para lo que REA espera encontrar en PATH
 #   * prefetch del paquete npm rea-agents (fijado por version)
@@ -11,6 +11,7 @@
 #   bash scripts/termux-bootstrap.sh --jadx       # solo el jar de JADX
 #   bash scripts/termux-bootstrap.sh --shims      # solo los wrappers
 #   bash scripts/termux-bootstrap.sh --rea        # solo prefetch de rea-agents
+#   bash scripts/termux-bootstrap.sh --android-tools # APKTool/aapt/apksigner/adb
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -40,12 +41,22 @@ do_packages() {
   say "actualizando indice"
   pkg update -y >/dev/null 2>&1 || true
   pkg_install nodejs npm python procps unzip zip jq git
-  # JDK completo: JADX necesita jdk.compiler (un JRE no sirve)
-  pkg_install openjdk-17 || warn "openjdk-17 fallo; prueba: pkg install openjdk-21"
+  do_android_tools
+  # JDK completo: JADX necesita jdk.compiler; OpenJDK 21 sirve para REA/JADX y Build Tools.
+  pkg_install openjdk-21 || warn "OpenJDK 21 fallo; instala manualmente un JDK completo 17+"
   command -v java >/dev/null 2>&1 && java -version 2>&1 | head -2 || warn "java no disponible"
   say "python deps"
   python -m pip install --quiet --upgrade pip || true
   python -m pip install --quiet httpx || warn "no pude instalar httpx"
+}
+
+do_android_tools() {
+  need_termux
+  # aapt (Termux) integra varias Android Build Tools nativas (aapt2,
+  # zipalign y aidl en las versiones actuales); doctor verifica cada binario.
+  pkg_install aapt apktool apksigner android-tools
+  # Gradle es auxiliar para compilar el proyecto nuevo; REA/JADX no lo requieren.
+  pkg_install gradle || warn "Gradle es opcional; instala su toolchain segun el stack elegido"
 }
 
 do_jadx() {
@@ -96,11 +107,15 @@ EOF
 exec npx -y rea-agents@${REA_VERSION} "\$@"
 EOF
 
-  # 3) `aapt` de reemplazo: package id sin Android SDK (parser AXML en python)
-  cat > "$bindir/aapt" <<'EOF'
+  chmod +x "$bindir/jadx" "$bindir/rea"
+  say "shims instalados en $bindir: jadx, rea"
+
+  # No se reemplaza el aapt del SDK/Termux. Solo instalar un shim minimo si falta.
+  if ! command -v aapt >/dev/null 2>&1; then
+    cat > "$bindir/aapt" <<'EOF'
 #!/usr/bin/env bash
-# shim minimo: soporta `aapt dump badging <apk>` -> emite "package: name=..."
-if [ "$1" = "dump" ] && [ "$2" = "badging" ]; then
+# Fallback solo para obtener package id cuando Android Build Tools no existe.
+if [ "$#" -ge 3 ] && [ "$1" = "dump" ] && [ "$2" = "badging" ]; then
   shift 2
   exec python - "$1" <<'PY'
 import sys
@@ -108,7 +123,7 @@ sys.path.insert(0, __import__("os").environ.get("REA_TERMUX_PATH", ""))
 try:
     from rea_termux.apkmeta import read_apk_meta
 except ImportError:
-    sys.exit("aapt shim: instala rea-termux (pip install -e .) o define REA_TERMUX_PATH")
+    sys.exit("aapt shim: instala rea-termux o define REA_TERMUX_PATH")
 meta = read_apk_meta(sys.argv[1])
 if meta.get("package"):
     print(f"package: name='{meta['package']}'")
@@ -117,12 +132,15 @@ else:
     sys.exit(1)
 PY
 fi
-echo "aapt shim: solo implementa 'dump badging'" >&2
+echo "aapt shim: solo implementa 'dump badging'; instala aapt para Android Build Tools" >&2
 exit 1
 EOF
+    chmod +x "$bindir/aapt"
+    say "shim aapt minimo instalado (solo fallback de package id)"
+  else
+    say "aapt real detectado; se conserva sin sobrescribirlo"
+  fi
 
-  chmod +x "$bindir/jadx" "$bindir/rea" "$bindir/aapt"
-  say "shims instalados en $bindir: jadx, rea, aapt"
 }
 
 do_rea() {
@@ -137,6 +155,7 @@ main() {
     --jadx)  do_jadx ;;
     --shims) do_shims ;;
     --rea)   do_rea ;;
+    --android-tools) do_android_tools ;;
     "")      do_packages; do_jadx; do_shims; do_rea ;;
     *)       die "opcion desconocida: $only" ;;
   esac

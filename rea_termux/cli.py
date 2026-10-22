@@ -24,8 +24,8 @@ from .preflight import preflight
 from .providers import AllProvidersFailed, Router
 from .report import build_analysis, summary_for_prompt
 from .scaffold import write_project
-from . import (design, probe as probe_mod, rea_cli, static_analysis, uicapture, vcs,
-               verify as verify_mod)
+from . import (android_tools, design, probe as probe_mod, rea_cli, static_analysis,
+               uicapture, vcs, verify as verify_mod)
 
 BOLD, DIM, RED, YEL, GRN, RST = "\033[1m", "\033[2m", "\033[31m", "\033[33m", "\033[32m", "\033[0m"
 
@@ -247,6 +247,20 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         warn("faltan dependencias obligatorias; el analisis puede fallar")
 
     rea_cli.set_fail_log(analysis / "failures.jsonl")
+    info("Herramientas Android locales: aapt, apksigner, zipalign y apktool (si estan instaladas)")
+    android_report = android_tools.process_apk(
+        staged, analysis, decode_resources=not getattr(args, "no_apktool", False))
+    android_paths = android_tools.write_report(analysis, android_report)
+    artifacts: dict[str, Path] = dict(android_paths)
+    for key, detail in android_report.get("aapt_metadata", {}).items():
+        if key == "package":
+            info(f"aapt package: {detail}")
+    failed_steps = [s for s in android_report.get("steps", [])
+                    if s.get("available") and not s.get("ok")]
+    if failed_steps:
+        warn("una o mas comprobaciones Android devolvieron aviso/error; consulta ANDROID_TOOLS.md")
+    else:
+        ok(f"herramientas Android -> {android_paths['android_tools_report']}")
     if not args.no_vcs:
         res_vcs = vcs.init(ws)
         if res_vcs.get("ok"):
@@ -259,7 +273,6 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         return 2
     res, art_inspect = rea_cli.inspect_android_package(cfg, staged, evidence,
                                                        full=not args.fast)
-    artifacts: dict[str, Path] = {}
     if art_inspect:
         artifacts["inspect"] = art_inspect
         ok(f"manifest/clases -> {art_inspect}")
@@ -296,7 +309,8 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         pkg_axml = None
     if pkg_rea and pkg_axml and pkg_rea != pkg_axml:
         warn(f"discrepancia de package id: REA dice {pkg_rea}, el manifest dice {pkg_axml}")
-    package = args.package or pkg_rea or pkg_axml or staged.stem
+    pkg_aapt = (android_report.get("aapt_metadata") or {}).get("package")
+    package = args.package or pkg_rea or pkg_axml or pkg_aapt or staged.stem
     info(f"package id detectado: {package}")
 
     info("Escaneo estatico local del APK (sin ejecutarlo)")
@@ -305,7 +319,16 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         try:
             manifest_data = json.loads(art_inspect.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            warn("no se pudo leer el artefacto de manifest de REA; el escaneo local continua sin el")
+            warn("no se pudo leer el artefacto de manifest de REA; pruebo el manifest de apktool")
+    if not manifest_data:
+        apktool_manifest = android_report.get("artifacts", {}).get("apktool_manifest")
+        if apktool_manifest and Path(apktool_manifest).is_file():
+            try:
+                manifest_xml = Path(apktool_manifest).read_text(encoding="utf-8", errors="replace")
+                manifest_data = {"manifest": {"text": manifest_xml}}
+                artifacts["apktool_manifest"] = Path(apktool_manifest)
+            except OSError:
+                warn("no se pudo leer el manifest decodificado por apktool")
     static_report = static_analysis.analyze_apk(staged, manifest_data)
     if not static_report.get("package"):
         static_report["package"] = package
@@ -320,7 +343,13 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     static_diff_paths: dict[str, Path] = {}
     if diff_apk:
         info(f"comparando static analysis con {diff_apk.name}")
-        other_evidence = analysis / "diff_other" / "evidence"
+        other_analysis_dir = analysis / "diff_other"
+        other_android_report = android_tools.process_apk(
+            diff_apk, other_analysis_dir,
+            decode_resources=not getattr(args, "no_apktool", False))
+        other_android_paths = android_tools.write_report(other_analysis_dir, other_android_report)
+        artifacts.update({"diff_" + key: path for key, path in other_android_paths.items()})
+        other_evidence = other_analysis_dir / "evidence"
         other_evidence.mkdir(parents=True, exist_ok=True)
         other_manifest = {}
         other_result, other_inspect = rea_cli.inspect_android_package(
@@ -333,6 +362,15 @@ def cmd_analyze(args: argparse.Namespace) -> int:
                 warn("no se pudo leer el manifest del APK comparado; diff local sigue")
         elif not other_result.ok:
             warn("REA no obtuvo el manifest del APK comparado; el diff estatico omite deep links/permisos declarados")
+        if not other_manifest:
+            other_apktool_manifest = other_android_report.get("artifacts", {}).get("apktool_manifest")
+            if other_apktool_manifest and Path(other_apktool_manifest).is_file():
+                try:
+                    other_manifest = {"manifest": {"text": Path(other_apktool_manifest).read_text(
+                        encoding="utf-8", errors="replace")}}
+                    artifacts["diff_other_apktool_manifest"] = Path(other_apktool_manifest)
+                except OSError:
+                    warn("no se pudo leer el manifest apktool del APK comparado")
         other_report = static_analysis.analyze_apk(diff_apk, other_manifest)
         diff_data = static_analysis.compare_reports(static_report, other_report)
         static_diff_paths = {
@@ -1087,6 +1125,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="sigue aunque la descompilacion falle")
     s.add_argument("--diff", default=None, metavar="OTRO.apk",
                    help="compara el APK actual con otro (endpoints, permisos, SDK, licencias)")
+    s.add_argument("--no-apktool", action="store_true",
+                   help="omite la decodificacion local de recursos con apktool")
     s.add_argument("--no-vcs", action="store_true", help="no crear repo git")
     s.add_argument("--no-stream", action="store_true", help="sin streaming")
     s.set_defaults(func=cmd_analyze)

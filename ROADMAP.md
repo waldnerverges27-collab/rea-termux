@@ -86,6 +86,7 @@ El plan y los análisis dependen de prosa. Usar `response_format: {type: json_sc
 
 ### 1.7 Analizador estático propio (independiente de REA) — ✅ hecho
 - Nuevo `static_analysis.py`: inspecciona strings y paths del ZIP/APK con límites de tamaño/entradas; no ejecuta el paquete.
+- `android_tools.py` + bootstrap/doctor: APKTool, aapt/aapt2, apksigner, zipalign, adb, Gradle y deteccion del SDK platform (`android.jar`); `analyze` ejecuta verificacion de firma/alineacion y decodificacion de recursos local si las herramientas existen.
 - Detecta URLs/hosts (query strings redactadas), Firebase config, deep links del manifest, referencias literales de permisos, SDKs/frameworks conocidos y posibles secretos por patrones + entropía de Shannon.
 - **Nunca persiste valores de secretos**: se guardan tipo, archivo, confianza, longitud y entropía opcional; candidatos de alta entropía se marcan para revisión y el umbral se calibró contra F-Droid real.
 - Inventario de licencias copyleft y `analysis/NOTICE.md` con advertencias, sin copiar textos de licencias.

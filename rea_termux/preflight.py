@@ -113,11 +113,41 @@ def ps_check() -> Check:
                  "pkg install procps", optional=True)
 
 
-def aapt_check() -> Check:
-    if shutil.which("aapt") or shutil.which("aapt2"):
-        return Check("aapt", True, "ok", optional=True)
-    return Check("aapt", False, "no encontrado (solo fallback de package id)",
-                 "pkg install aapt", optional=True)
+def android_tool_checks() -> list[Check]:
+    """Herramientas Android auxiliares; son opcionales para REA pero mejoran el analisis."""
+    specs = [
+        ("apktool", "APKTool", "pkg install apktool"),
+        ("aapt", "Android aapt", "pkg install aapt"),
+        ("aapt2", "Android aapt2", "pkg install aapt aapt2"),
+        ("apksigner", "Android apksigner", "pkg install apksigner"),
+        ("zipalign", "Android zipalign", "pkg install aapt (incluye build tools en Termux)"),
+    ]
+    checks = []
+    for command, label, fix in specs:
+        path = shutil.which(command)
+        checks.append(Check(label, bool(path), path or "no instalado", fix, optional=True))
+    return checks
+
+
+def android_sdk_check() -> Check:
+    """Detecta plataformas android.jar para compilacion; no bloquea el analisis APK."""
+    candidates = [os.environ.get("ANDROID_SDK_ROOT"), os.environ.get("ANDROID_HOME"),
+                  str(Path.home() / "Android" / "Sdk"), str(Path.home() / "android-sdk")]
+    prefix = os.environ.get("PREFIX")
+    if prefix:
+        candidates.append(str(Path(prefix) / "share" / "android-sdk"))
+    for value in candidates:
+        if not value:
+            continue
+        root = Path(value).expanduser()
+        platforms = sorted(p.name for p in (root / "platforms").glob("android-*")
+                           if (p / "android.jar").is_file()) if (root / "platforms").is_dir() else []
+        if platforms:
+            return Check("Android SDK platform", True,
+                         f"{root} · {', '.join(platforms)}", optional=True)
+    return Check("Android SDK platform", False, "android.jar no detectado (solo afecta compilacion Android)",
+                 "instala una plataforma Android compatible y define ANDROID_HOME / ANDROID_SDK_ROOT",
+                 optional=True)
 
 
 def device_check() -> Check:
@@ -147,7 +177,8 @@ def all_checks(cfg: Config) -> list[Check]:
         java_check(),
         jadx_jar_check(),
         ps_check(),
-        aapt_check(),
+        *android_tool_checks(),
+        android_sdk_check(),
         device_check(),
     ]
 
