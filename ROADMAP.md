@@ -103,8 +103,9 @@ El plan y los análisis dependen de prosa. Usar `response_format: {type: json_sc
 ### 1.9 Empaquetado de rea-termux para Termux — primera versión implementada
 - Extra opcional `freeze` con PyInstaller >= 6.20; `scripts/build-termux-binary.sh` crea un ejecutable `dist/rea-termux` para la arquitectura del Termux donde se construye.
 - `termux-bootstrap.sh --binary` instala el toolchain C y dispara el empaquetado; el builder comprueba el entorno y smoke-testea `--version`, `gui --help` y `doctor --help`.
+- Nuevo instalador con curl `scripts/install-termux.sh`: descarga el archivo público `main`, ejecuta bootstrap + build, instala en `$PREFIX/bin` y conserva el código fuente anterior durante las actualizaciones.
 - El modo congelado relanza subcomandos del panel usando el propio ejecutable. Node/REA, Java/JADX y las herramientas Android se mantienen como dependencias del sistema.
-- Pruebas locales: syntax, contrato del builder y rechazo de Linux fuera de Termux. **Pendiente compilar y ejecutar en dispositivo Termux real; el soporte PyInstaller/Termux es no oficial.**
+- Pruebas locales: contratos de installer/builder y rechazo de Linux fuera de Termux. **Pendiente compilar y ejecutar en dispositivo Termux real; el soporte PyInstaller/Termux es no oficial.**
 
 ### 1.10 Navegación y recursos del proyecto generado
 - `AppRoot.kt` usa un `var current` a mano: generar un **NavHost** real (Compose Navigation / go_router / react-router) con el grafo deducido de actividades + orden de capturas.

@@ -80,16 +80,32 @@ Tres capas, todas en disco:
 
 Ghidra, IDA y Hopper son binarios x86: no corren en el teléfono. Para APKs no hacen falta (REA usa JADX).
 
-## Instalación
+## Instalación desde Termux con curl
+
+El instalador descarga la rama pública `main`, prepara las dependencias, compila
+el ejecutable nativo para el Termux actual y lo instala en `$PREFIX/bin`:
 
 ```bash
-pkg install git python nodejs npm android-tools aapt apktool apksigner gradle
-pip install httpx
-git clone <tu-repo>/rea-termux && cd rea-termux
+curl -fsSL --proto '=https' --tlsv1.2 \
+  https://raw.githubusercontent.com/waldnerverges27-collab/rea-termux/main/scripts/install-termux.sh | bash
+
+rea-termux init
+# Configura base_url/model y las variables de API del proveedor.
+rea-termux gui
+```
+
+Para actualizar, vuelve a ejecutar el mismo comando `curl`. Si prefieres revisar
+el instalador antes de ejecutarlo, descárgalo como archivo y léelo primero.
+El proceso instala también las herramientas de Termux y puede tardar al bajar
+JADX/REA y compilar el binario. Si `curl` no está disponible: `pkg install curl`.
+
+Instalación desde un checkout para desarrollo:
+
+```bash
+git clone https://github.com/waldnerverges27-collab/rea-termux.git
+cd rea-termux
 bash scripts/termux-bootstrap.sh
-# solo herramientas Android (alternativa):
-bash scripts/termux-bootstrap.sh --android-tools
-./rea-termux init && ./rea-termux doctor
+bash scripts/termux-bootstrap.sh --binary
 ```
 
 ## Panel gráfico local (recomendado)
@@ -396,7 +412,7 @@ Herramientas que el agente tiene en el chat (además de las de REA):
 ## Estado y pruebas
 
 ```bash
-python -m pytest -q     # 141 pruebas
+python -m pytest -q     # 142 pruebas
 ```
 
 Cubren cliente MCP, fallback entre proveedores, análisis APK, herramientas Android, UI/capturas, generación por stack, memoria/sesiones, auto-reparación, Git, servidor gráfico local y contrato del empaquetador Termux. El empaquetador se prueba en sandbox con comprobaciones y guardas; falta compilar/ejecutar el ejecutable en un teléfono Termux real.
