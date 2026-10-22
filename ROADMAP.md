@@ -9,8 +9,8 @@ Referencias: `archivo:línea` aproximada y módulo afectado.
 
 - **Tier 0 — HECHO y validado contra REA 6.7.0 real y el APK `org.fdroid.fdroid` 1.21.1.**
   Ver "Hallazgos reales" al final del Tier 0.
-- **Tier 1.1–1.5 — HECHOS**: autocorrección de build, git por turno, streaming, salidas estructuradas y análisis visual multimodal opt-in.
-- **Siguiente: Tier 1.6 — inferencia del layout y generación basada en estructura visual.**
+- **Tier 1.1–1.6 — HECHOS**: autocorrección de build, git por turno, streaming, salidas estructuradas, análisis visual multimodal e inferencia geométrica de layouts.
+- **Siguiente: Tier 1.7 — analizador estático independiente de REA.**
 
 ## Tier 0 — Validar antes de seguir añadiendo (riesgo alto, coste bajo)
 
@@ -77,10 +77,12 @@ El plan y los análisis dependen de prosa. Usar `response_format: {type: json_sc
 - Persiste observaciones y proveedor/modelo en `ui/<pantalla>.json`; las incorpora a `DESIGN.md` sin reemplazar la evidencia local. La transferencia al proveedor es opt-in, por riesgo de datos visibles.
 - Pruebas: captura MCP con imagen, fallback controlado, carga multimodal HTTP simulada, validación de esquema y gating de capacidad.
 
-### 1.6 Inferencia de layout real
-Hoy las pantallas se generan en orden vertical de nodos. Añadir una pasada que detecte: app bar, bottom nav, FAB, filas vs columnas (agrupación por bandas Y / clusters X), listas vs grids, y agrupación en `Card`.
-- `design.py`: nueva función `infer_layout(plan) -> tree`; afecta a `flutter_screen`, `compose_screen`.
-- Valor: alto (salto de calidad visible). Esfuerzo: 1 día.
+### 1.6 Inferencia de layout real — ✅ hecho
+- Nuevo `layout.py`: análisis geométrico sin dependencias; clasifica orientación, app bar, navegación inferior, FAB, filas, columnas, listas, grids y tarjetas agrupadas por contención.
+- `screen_plan()` conserva hijos semánticos dentro de tarjetas/listas y añade el árbol inferido; `DESIGN.md` expone el resultado.
+- Los generadores Flutter, Compose y React ahora consumen filas/grids, tarjetas, navegación y FAB en vez de aplanar todos los elementos como una columna.
+- Fallback explícito y conservador cuando faltan bounds: mantiene orden en columna y registra diagnóstico, sin afirmar detecciones geométricas.
+- Pruebas con pantallas sintéticas 2×2, contenedores anidados, app bar, bottom nav, FAB y bounds ausentes.
 
 ### 1.7 Analizador estático propio (independiente de REA)
 Cuando JADX/REA falla, hoy no hay nada. Añadir análisis sobre el APK y sobre el output de jadx:

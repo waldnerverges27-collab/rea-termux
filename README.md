@@ -50,6 +50,12 @@ acepta imágenes. El resultado JSON validado se guarda dentro de cada
 captura local y el wireframe siguen funcionando. No envíes pantallas con datos
 personales o sensibles.
 
+`screen_plan()` también infiere una estructura geométrica conservadora a partir
+de `bounds`: filas, columnas/listas, grids, tarjetas, app bar, navegación
+inferior y FAB. El árbol se refleja en `DESIGN.md` y orienta los generadores
+Flutter, Compose y React; si faltan coordenadas, se conserva el orden vertical y
+se anota la limitación en lugar de inventar posiciones.
+
 ### 3. Que no olvide lo que hizo
 Tres capas, todas en disco:
 

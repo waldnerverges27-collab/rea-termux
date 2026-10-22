@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .interview import Answers
+from .layout import infer_layout
 
 # ------------------------------------------------------------------ mapeo
 #: fragmento de clase Android -> tipo semantico de componente
@@ -65,7 +66,7 @@ def px_to_dp(px: float, density: int = 480) -> float:
 # --------------------------------------------------------- plan de pantalla
 def screen_plan(spec: dict[str, Any]) -> dict[str, Any]:
     """Convierte los nodos capturados en un plan de componentes ordenado."""
-    useful = {"image", "list", "progress", "nav", "fab", "card", "toggle", "input",
+    useful = {"image", "list", "progress", "nav", "fab", "card", "appbar", "toggle", "input",
               "button", "text"}
     nodes = [
         n for n in spec.get("nodes", [])
@@ -81,7 +82,8 @@ def screen_plan(spec: dict[str, Any]) -> dict[str, Any]:
         inside = any(
             k["bounds"][0] <= x1 and k["bounds"][1] <= y1
             and k["bounds"][2] >= x2 and k["bounds"][3] >= y2
-            and k is not n and (k["bounds"][2] - k["bounds"][0]) * (k["bounds"][3] - k["bounds"][1]) > area
+            and k is not n and semantic_type(k.get("cls", "")) not in {"card", "list", "nav", "appbar"}
+            and (k["bounds"][2] - k["bounds"][0]) * (k["bounds"][3] - k["bounds"][1]) > area
             for k in kept
         )
         if inside:
@@ -99,10 +101,11 @@ def screen_plan(spec: dict[str, Any]) -> dict[str, Any]:
             "bounds": n.get("bounds"),
             "clickable": bool(n.get("clickable")),
             "editable": bool(n.get("editable")),
+            "depth": int(n.get("depth", 0) or 0),
         })
     # heuristica: el primer texto de la zona superior es el titulo
     title = next((c["label"] for c in components if c["type"] == "text" and c["label"]), spec.get("name", ""))
-    return {
+    plan = {
         "name": spec.get("name", "pantalla"),
         "title": title,
         "components": components[:40],
@@ -113,6 +116,8 @@ def screen_plan(spec: dict[str, Any]) -> dict[str, Any]:
         "wireframe": spec.get("wireframe", ""),
         "vision": spec.get("vision", {}),
     }
+    plan["layout"] = infer_layout(plan)
+    return plan
 
 
 def improvements(plan: dict[str, Any], density: int = 480) -> list[str]:
@@ -134,7 +139,13 @@ def improvements(plan: dict[str, Any], density: int = 480) -> list[str]:
                        "tipo de teclado adecuado.")
         if c["type"] == "image" and not c["label"]:
             out.append("Imagen sin descripcion → contentDescription para accesibilidad.")
-    if not any(c["type"] == "nav" for c in plan["components"]):
+    layout = plan.get("layout") or {}
+    content_layout = (layout.get("content") or {}).get("layout")
+    if content_layout == "grid":
+        out.append("La geometria sugiere una cuadricula: conservar columnas y probar reflow en pantallas estrechas.")
+    elif content_layout == "list":
+        out.append("La geometria sugiere una lista repetida: separar filas y anadir estados vacio/carga/error.")
+    if not layout.get("bottom_navigation") and not any(c["type"] == "nav" for c in plan["components"]):
         out.append("Sin navegacion persistente: valora barra inferior si hay 3+ destinos.")
     out.append("Rejilla de 8dp para margenes/espaciados y radios coherentes (12/16dp).")
     out.append("Modo oscuro con los mismos roles de color (primary/surface/onSurface).")
@@ -184,7 +195,19 @@ def build_design_md(plans: list[dict[str, Any]], tokens: dict[str, Any],
         lines += [f"### {p['name']}", "",
                   f"- Titulo propuesto: **{p['title'] or p['name']}**",
                   f"- Referencia: `{p['wireframe'] or p['png']}`", "",
-                  "| # | Tipo | Texto/rol | Accionable |", "|---|---|---|---|"]
+                  f"- Layout inferido: `{(p.get('layout') or {}).get('content', {}).get('layout', 'column')}`"
+                  f" · orientacion `{(p.get('layout') or {}).get('orientation', 'unknown')}`", ""]
+        layout = p.get("layout") or {}
+        if layout.get("app_bar"):
+            lines.append(f"- App bar: detectada (titulo `{layout['app_bar'].get('title', '') or p['title']}`)")
+        if layout.get("bottom_navigation"):
+            nav_items = layout["bottom_navigation"].get("items") or []
+            lines.append(f"- Navegacion inferior: detectada ({len(nav_items)} destino(s) etiquetado(s))")
+        if layout.get("fab"):
+            lines.append("- Accion flotante: detectada")
+        for diagnostic in layout.get("diagnostics", [])[:4]:
+            lines.append(f"- Inferencia: {diagnostic}")
+        lines += ["", "| # | Tipo | Texto/rol | Accionable |", "|---|---|---|---|"]
         for i, c in enumerate(p["components"][:24], 1):
             lines.append(f"| {i} | {c['type']} | {c['label'][:40] or '—'} | "
                          f"{'si' if c['clickable'] or c['editable'] else 'no'} |")
@@ -209,37 +232,106 @@ def build_design_md(plans: list[dict[str, Any]], tokens: dict[str, Any],
 
 # ------------------------------------------------------------------- codigo
 def _q(s: str) -> str:
-    return s.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ")
+    return (str(s).replace("\\", "\\\\").replace("'", "\\'")
+            .replace('"', '\\"').replace("\n", " "))
+
+
+def _html(s: str) -> str:
+    import html
+    return html.escape(str(s), quote=True)
+
+
+def _plan_layout(plan: dict[str, Any]) -> dict[str, Any]:
+    current = plan.get("layout")
+    return current if isinstance(current, dict) and current.get("version") == 1 else infer_layout(plan)
+
+
+def _group_nodes(group: dict[str, Any]) -> list[dict[str, Any]]:
+    return [node for row in group.get("rows", []) for node in row.get("children", [])]
+
+
+def _flutter_component(node: dict[str, Any]) -> str:
+    comp = node.get("component") or {}
+    kind = node.get("kind", "component")
+    label = _q(comp.get("label", ""))
+    if kind == "card":
+        rows = node.get("children_rows") or []
+        children = _flutter_group({"layout": node.get("children_layout", "column"), "rows": rows})
+        if not children:
+            children = ["const ListTile(title: Text('Tarjeta')), "]
+        return ("Card(child: Padding(padding: const EdgeInsets.all(12), child: Column("
+                "crossAxisAlignment: CrossAxisAlignment.start, children: [\n"
+                + "\n".join("  " + x for x in children)
+                + "\n]))),")
+    if kind == "list":
+        rows = node.get("children_rows") or []
+        children = _flutter_group({"layout": node.get("children_layout", "column"), "rows": rows})
+        if children:
+            return ("Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [\n"
+                    + "\n".join("  " + x for x in children) + "\n]),")
+        return f"Card(child: ListTile(leading: const Icon(Icons.list), title: const Text('{label or 'Lista'}'), subtitle: const Text('TODO: datos reales'))),"
+    t = comp.get("type")
+    if t == "input":
+        return f"TextField(decoration: InputDecoration(labelText: '{label or 'Campo'}', border: const OutlineInputBorder())),"
+    if t == "button":
+        return f"SizedBox(width: double.infinity, height: 48, child: FilledButton(onPressed: () {{}}, child: const Text('{label or 'Continuar'}'))),"
+    if t == "toggle":
+        return f"SwitchListTile(title: Text('{label or 'Opcion'}'), value: false, onChanged: (v) {{}}),"
+    if t == "image":
+        return "Container(height: 160, decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(12)), child: const Center(child: Icon(Icons.image_outlined, size: 40))),"
+    if t == "progress":
+        return "const LinearProgressIndicator(),"
+    if label:
+        return f"Text('{label}', style: Theme.of(context).textTheme.bodyLarge),"
+    return "const SizedBox.shrink(),"
+
+
+def _flutter_group(group: dict[str, Any]) -> list[str]:
+    rows = group.get("rows") or []
+    if group.get("layout") == "grid":
+        nodes = _group_nodes(group)
+        cols = max(2, min(int(group.get("columns", 2) or 2), 4))
+        children = "\n".join("  " + _flutter_component(n) for n in nodes)
+        return [f"GridView.count(crossAxisCount: {cols}, shrinkWrap: true, "
+                "physics: const NeverScrollableScrollPhysics(), crossAxisSpacing: 12, "
+                "mainAxisSpacing: 12, children: [\n" + children + "\n]),"]
+    out: list[str] = []
+    for row in rows:
+        children = row.get("children") or []
+        if len(children) > 1:
+            items = "\n".join("  Expanded(child: " + _flutter_component(n).rstrip(",") + "),"
+                                for n in children)
+            out.append("Row(crossAxisAlignment: CrossAxisAlignment.start, children: [\n"
+                       + items + "\n]),")
+        elif children:
+            out.append(_flutter_component(children[0]))
+    return out
+
+
+def _nav_labels(layout: dict[str, Any]) -> list[str]:
+    data = layout.get("bottom_navigation") or {}
+    labels = [str(x).strip() for x in data.get("items", []) if str(x).strip()]
+    if data and len(labels) < 2:
+        labels = [f"Destino {i + 1}" for i in range(max(3, len(labels)))]
+    return labels[:5]
 
 
 def flutter_screen(plan: dict[str, Any], *, primary: str = "0xFF3D5AFE") -> str:
     name = plan["name"]
     cls = "".join(p[:1].upper() + p[1:] for p in re.split(r"[^a-zA-Z0-9]+", name) if p) or "Screen"
-    rows: list[str] = []
-    for c in plan["components"]:
-        label = _q(c["label"])
-        t = c["type"]
-        if t == "input":
-            rows.append(f"          TextField(decoration: InputDecoration(labelText: '{label or 'Campo'}', border: OutlineInputBorder())),")
-        elif t == "button":
-            rows.append(f"          SizedBox(width: double.infinity, height: 48, child: FilledButton(onPressed: () {{}}, child: const Text('{label or 'Continuar'}'))),")
-        elif t == "toggle":
-            rows.append(f"          SwitchListTile(title: Text('{label or 'Opcion'}'), value: false, onChanged: (v) {{}}),")
-        elif t == "image":
-            rows.append("          Container(height: 160, decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(12)), child: const Center(child: Icon(Icons.image_outlined, size: 40))),")
-        elif t == "list":
-            rows.append(f"          Card(child: ListTile(leading: const Icon(Icons.list), title: const Text('{label or 'Lista'}'), subtitle: const Text('TODO: datos reales'), onTap: () {{}})),")
-        elif t == "nav":
-            rows.append("          // TODO: NavigationBar con los destinos detectados")
-        elif t == "fab":
-            rows.append("          // TODO: FloatingActionButton para la accion principal")
-        elif t == "progress":
-            rows.append("          const LinearProgressIndicator(),")
-        else:
-            if label:
-                rows.append(f"          Text('{label}', style: Theme.of(context).textTheme.bodyLarge),")
-    if not rows:
-        rows = ["          const Text('TODO: construir esta pantalla'),"]
+    layout = _plan_layout(plan)
+    children = _flutter_group(layout.get("content") or {})
+    if not children:
+        children = ["const Text('TODO: construir esta pantalla'),"]
+    body = "\n".join("          " + line for line in children)
+    labels = _nav_labels(layout)
+    bottom = ""
+    if labels:
+        items = ",\n".join(
+            f"          NavigationDestination(icon: const Icon(Icons.circle_outlined), label: '{_q(label)}')"
+            for label in labels)
+        bottom = f"      bottomNavigationBar: NavigationBar(destinations: [\n{items}\n      ]),\n"
+    fab = "      floatingActionButton: FloatingActionButton(onPressed: () {}, child: const Icon(Icons.add)),\n" if layout.get("fab") else ""
     return f"""\
 import 'package:flutter/material.dart';
 
@@ -252,11 +344,11 @@ class {cls}Screen extends StatelessWidget {{
   Widget build(BuildContext context) {{
     return Scaffold(
       appBar: AppBar(title: const Text('{_q(plan["title"] or name)}')),
-      body: SafeArea(
+{bottom}{fab}      body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-{chr(10).join(rows)}
+{body}
           ],
         ),
       ),
@@ -266,33 +358,65 @@ class {cls}Screen extends StatelessWidget {{
 """
 
 
+def _compose_component(node: dict[str, Any], weighted: bool = False) -> str:
+    comp = node.get("component") or {}
+    kind = node.get("kind", "component")
+    label = _q(comp.get("label", ""))
+    modifier = "Modifier.weight(1f)" if weighted else "Modifier.fillMaxWidth()"
+    if kind in {"card", "list"}:
+        children = _compose_group({"layout": node.get("children_layout", "column"),
+                                   "rows": node.get("children_rows") or []})
+        if kind == "card" and children:
+            body = "\n".join("    " + x for x in children)
+            return f"Card({modifier}) {{ Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {{\n{body}\n}} }}"
+        if children:
+            body = "\n".join("    " + x for x in children)
+            return f"Column({modifier}, verticalArrangement = Arrangement.spacedBy(8.dp)) {{\n{body}\n}}"
+        return f'Card({modifier}) {{ ListItem(headlineContent = {{ Text("{label or "Lista"}") }}, supportingContent = {{ Text("TODO: datos reales") }}) }}'
+    t = comp.get("type")
+    if t == "input":
+        return f'OutlinedTextField(value = "", onValueChange = {{}}, label = {{ Text("{label or "Campo"}") }}, modifier = {modifier})'
+    if t == "button":
+        btn_modifier = f"{modifier}.heightIn(min = 48.dp)"
+        return f'Button(onClick = {{}}, modifier = {btn_modifier}) {{ Text("{label or "Continuar"}") }}'
+    if t == "toggle":
+        return f'Row(verticalAlignment = Alignment.CenterVertically) {{ Switch(checked = false, onCheckedChange = {{}}); Text("  {label or "Opcion"}") }}'
+    if t == "image":
+        return 'Box(Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) { Icon(Icons.Filled.Image, contentDescription = null) }'
+    if t == "progress":
+        return 'LinearProgressIndicator(Modifier.fillMaxWidth())'
+    return f'Text("{label}", style = MaterialTheme.typography.bodyLarge)' if label else 'Spacer(Modifier.height(1.dp))'
+
+
+def _compose_group(group: dict[str, Any]) -> list[str]:
+    out: list[str] = []
+    for row in group.get("rows") or []:
+        nodes = row.get("children") or []
+        if len(nodes) > 1:
+            children = "\n".join("    " + _compose_component(n, weighted=True) for n in nodes)
+            out.append("Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {\n"
+                       + children + "\n}")
+        elif nodes:
+            out.append(_compose_component(nodes[0]))
+    return out
+
+
 def compose_screen(plan: dict[str, Any], package: str) -> str:
     name = plan["name"]
     cls = "".join(p[:1].upper() + p[1:] for p in re.split(r"[^a-zA-Z0-9]+", name) if p) or "Screen"
-    rows: list[str] = []
-    for c in plan["components"]:
-        label = _q(c["label"])
-        t = c["type"]
-        if t == "input":
-            rows.append(f'        OutlinedTextField(value = "", onValueChange = {{}}, label = {{ Text("{label or "Campo"}") }}, modifier = Modifier.fillMaxWidth())')
-        elif t == "button":
-            rows.append(f'        Button(onClick = {{}}, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {{ Text("{label or "Continuar"}") }}')
-        elif t == "toggle":
-            rows.append(f'        Row(verticalAlignment = Alignment.CenterVertically) {{ Switch(checked = false, onCheckedChange = {{}}); Text("  {label or "Opcion"}") }}')
-        elif t == "image":
-            rows.append('        Box(Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) { Icon(Icons.Image, contentDescription = null) }')
-        elif t == "list":
-            rows.append(f'        Card {{ ListTile(title = {{ Text("{label or "Lista"}") }}, subtitle = {{ Text("TODO: datos reales") }}, onClick = {{}}) }}')
-        elif t == "progress":
-            rows.append('        LinearProgressIndicator(Modifier.fillMaxWidth())')
-        elif t == "nav":
-            rows.append('        // TODO: NavigationBar con los destinos detectados')
-        else:
-            if label:
-                rows.append(f'        Text("{label}", style = MaterialTheme.typography.bodyLarge)')
-    body = "\n".join(rows) or '            Text("TODO: construir esta pantalla")'
-    body = "\n".join("    " + line if line.strip() else line
-                     for line in body.splitlines())
+    layout = _plan_layout(plan)
+    body_lines = _compose_group(layout.get("content") or {})
+    if not body_lines:
+        body_lines = ['Text("TODO: construir esta pantalla")']
+    body = "\n".join("            " + line for line in body_lines)
+    labels = _nav_labels(layout)
+    bottom = ""
+    if labels:
+        items = "\n".join(
+            f'            NavigationBarItem(selected = {str(i == 0).lower()}, onClick = {{}}, icon = {{ Text("•") }}, label = {{ Text("{_q(label)}") }})'
+            for i, label in enumerate(labels))
+        bottom = f"        bottomBar = {{ NavigationBar {{\n{items}\n        }} }},\n"
+    fab = '        floatingActionButton = { FloatingActionButton(onClick = {}) { Text("+") } },\n' if layout.get("fab") else ""
     return f"""\
 package {package}.ui.screens
 
@@ -316,7 +440,8 @@ import androidx.compose.material.icons.filled.Image
  */
 @Composable
 fun {cls}Screen() {{
-    Scaffold(topBar = {{ TopAppBar(title = {{ Text("{_q(plan["title"] or name)}") }}) }}) {{ padding ->
+    Scaffold(topBar = {{ TopAppBar(title = {{ Text("{_q(plan["title"] or name)}") }}) }},
+{bottom}{fab}    ) {{ padding ->
         Column(
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -328,29 +453,60 @@ fun {cls}Screen() {{
 """
 
 
+def _react_component(node: dict[str, Any]) -> str:
+    comp = node.get("component") or {}
+    kind = node.get("kind", "component")
+    label = _html(comp.get("label", ""))
+    if kind in {"card", "list"}:
+        children = _react_group({"layout": node.get("children_layout", "column"),
+                                 "rows": node.get("children_rows") or []})
+        if kind == "card":
+            return "<article style={{ padding: 16, borderRadius: 12, background: '#f5f5f5' }}>" + children + "</article>"
+        if children:
+            return "<div role=\"list\" style={{ display: 'grid', gap: 12 }}>" + children + "</div>"
+        return f"<div role=\"list\" style={{{{ padding: 16, borderRadius: 12, background: '#f5f5f5' }}}}>{label or 'Lista'} <small>· TODO datos reales</small></div>"
+    t = comp.get("type")
+    if t == "input":
+        return f'<input aria-label="{label or "Campo"}" placeholder="{label or "Campo"}" style={{{{ padding: 12, borderRadius: 12, border: \'1px solid #ccc\' }}}} />'
+    if t == "button":
+        return f'<button style={{{{ minHeight: 48, borderRadius: 12 }}}}>{label or "Continuar"}</button>'
+    if t == "toggle":
+        return f'<label><input type="checkbox" /> {label or "Opcion"}</label>'
+    if t == "image":
+        return '<div role="img" aria-label="Imagen" style={{ height: 160, background: \'#eee\', borderRadius: 12 }} />'
+    if t == "progress":
+        return '<progress aria-label="Cargando" />'
+    return f"<p>{label}</p>" if label else "<span />"
+
+
+def _react_group(group: dict[str, Any]) -> str:
+    layout = group.get("layout")
+    rows = group.get("rows") or []
+    if layout == "grid":
+        cols = max(2, min(int(group.get("columns", 2) or 2), 4))
+        children = "".join(_react_component(n) for n in _group_nodes(group))
+        return f"<div style={{{{ display: 'grid', gridTemplateColumns: 'repeat({cols}, minmax(0, 1fr))', gap: 12 }}}}>{children}</div>"
+    out = []
+    for row in rows:
+        nodes = row.get("children") or []
+        children = "".join(_react_component(n) for n in nodes)
+        if len(nodes) > 1:
+            out.append(f"<div style={{{{ display: 'flex', gap: 12, alignItems: 'center' }}}}>{children}</div>")
+        elif children:
+            out.append(children)
+    return "".join(out)
+
+
 def react_screen(plan: dict[str, Any]) -> str:
     name = plan["name"]
     cls = "".join(p[:1].upper() + p[1:] for p in re.split(r"[^a-zA-Z0-9]+", name) if p) or "Screen"
-    rows: list[str] = []
-    for c in plan["components"]:
-        label = _q(c["label"])
-        t = c["type"]
-        if t == "input":
-            rows.append(f"      <input placeholder=\"{label or 'Campo'}\" style={{{{ padding: 12, borderRadius: 12, border: '1px solid #ccc' }}}} />")
-        elif t == "button":
-            rows.append(f"      <button style={{{{ minHeight: 48, borderRadius: 12 }}}}>{label or 'Continuar'}</button>")
-        elif t == "toggle":
-            rows.append(f"      <label><input type=\"checkbox\" /> {label or 'Opcion'}</label>")
-        elif t == "image":
-            rows.append("      <div style={{ height: 160, background: '#eee', borderRadius: 12 }} />")
-        elif t == "list":
-            rows.append(f"      <div style={{{{ padding: 16, borderRadius: 12, background: '#f5f5f5' }}}}>{label or 'Lista'} <small>· TODO datos reales</small></div>")
-        elif t == "nav":
-            rows.append("      {/* TODO: barra de navegacion inferior */}")
-        else:
-            if label:
-                rows.append(f"      <p>{label}</p>")
-    body = "\n".join(rows) or "      <p>TODO: construir esta pantalla</p>"
+    layout = _plan_layout(plan)
+    body = _react_group(layout.get("content") or {}) or "<p>TODO: construir esta pantalla</p>"
+    labels = _nav_labels(layout)
+    nav = ("<nav aria-label=\"Navegación principal\" style={{ display: 'flex', gap: 16, "
+           "justifyContent: 'space-around', padding: 12 }}>" +
+           "".join(f"<button key=\"{i}\">{_html(label)}</button>" for i, label in enumerate(labels)) + "</nav>") if labels else ""
+    fab = '<button aria-label="Acción principal" style={{ position: \'fixed\', right: 24, bottom: 24, minHeight: 48 }}>+</button>' if layout.get("fab") else ""
     return f"""\
 import React from 'react';
 
@@ -358,8 +514,10 @@ import React from 'react';
 export default function {cls}Screen() {{
   return (
     <section style={{{{ display: 'grid', gap: 12, padding: 16 }}}}>
-      <h2>{_q(plan["title"] or name)}</h2>
-{body}
+      <h2>{_html(plan["title"] or name)}</h2>
+      {body}
+      {nav}
+      {fab}
     </section>
   );
 }}
