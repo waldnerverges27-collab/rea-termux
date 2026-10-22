@@ -1,0 +1,9 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# Lanzador de rea-termux que funciona sin instalar el paquete:
+#   ./rea-termux doctor
+# Tambien exporta REA_TERMUX_PATH para que el shim de aapt encuentre el modulo.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="${HERE}${PYTHONPATH:+:$PYTHONPATH}"
+export REA_TERMUX_PATH="${HERE}"
+exec python -m rea_termux "$@"
