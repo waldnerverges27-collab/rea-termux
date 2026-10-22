@@ -136,6 +136,25 @@ Si algo falla, imprime la acción concreta. Ejemplo real (Java 11):
 ✗   -> Verifica:  java -version && java --list-modules | grep jdk.compiler
 ```
 
+### Analisis estatico local y comparacion
+
+`analyze` ejecuta además un escaneo local del contenedor APK (sin iniciar la app),
+independiente del agente REA. Produce `analysis/STATIC_ANALYSIS.md/.json` y
+`analysis/NOTICE.md` con URLs/hosts, deep links del manifest, huellas de SDK,
+Firebase, referencias textuales de permisos declarados/usados y posibles licencias
+copyleft. Los valores de posibles secretos nunca se guardan: solo se informa el
+tipo, ubicación, longitud y nivel de confianza; las query strings de URLs se
+redactan. Las detecciones son indicios estáticos, no prueba de uso efectivo.
+
+Para comparar con otro APK:
+
+```bash
+./rea-termux analyze nueva.apk --diff version-anterior.apk --out ~/rea-workspace/diff
+```
+
+Genera `analysis/STATIC_DIFF.md/.json`; si REA no puede decodificar el manifest
+comparado, el diff omite permisos y deep links en vez de declararlos distintos.
+
 ## Flujo de trabajo
 
 ```bash

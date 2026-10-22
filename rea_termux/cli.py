@@ -24,7 +24,8 @@ from .preflight import preflight
 from .providers import AllProvidersFailed, Router
 from .report import build_analysis, summary_for_prompt
 from .scaffold import write_project
-from . import design, probe as probe_mod, rea_cli, uicapture, vcs, verify as verify_mod
+from . import (design, probe as probe_mod, rea_cli, static_analysis, uicapture, vcs,
+               verify as verify_mod)
 
 BOLD, DIM, RED, YEL, GRN, RST = "\033[1m", "\033[2m", "\033[31m", "\033[33m", "\033[32m", "\033[0m"
 
@@ -228,6 +229,10 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     if not apk.is_file():
         err(f"no existe: {apk}")
         return 2
+    diff_apk = Path(args.diff).expanduser() if getattr(args, "diff", None) else None
+    if diff_apk and not diff_apk.is_file():
+        err(f"no existe el APK de comparacion: {diff_apk}")
+        return 2
     ws = _workspace_for(cfg, apk, args.out)
     analysis = ws / "analysis"
     evidence = analysis / "evidence"
@@ -294,6 +299,53 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     package = args.package or pkg_rea or pkg_axml or staged.stem
     info(f"package id detectado: {package}")
 
+    info("Escaneo estatico local del APK (sin ejecutarlo)")
+    manifest_data = {}
+    if art_inspect:
+        try:
+            manifest_data = json.loads(art_inspect.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            warn("no se pudo leer el artefacto de manifest de REA; el escaneo local continua sin el")
+    static_report = static_analysis.analyze_apk(staged, manifest_data)
+    if not static_report.get("package"):
+        static_report["package"] = package
+    static_paths = static_analysis.write_outputs(analysis, static_report)
+    artifacts["static_json"] = static_paths["static_json"]
+    artifacts["static_report"] = static_paths["static_report"]
+    artifacts["license_notice"] = static_paths["license_notice"]
+    ok(f"estatico: {len(static_report['urls'])} URLs · {len(static_report['hosts'])} hosts · "
+       f"{len(static_report['secrets'])} candidatos redactados · "
+       f"{len(static_report['licenses'])} licencias copyleft candidatas")
+
+    static_diff_paths: dict[str, Path] = {}
+    if diff_apk:
+        info(f"comparando static analysis con {diff_apk.name}")
+        other_evidence = analysis / "diff_other" / "evidence"
+        other_evidence.mkdir(parents=True, exist_ok=True)
+        other_manifest = {}
+        other_result, other_inspect = rea_cli.inspect_android_package(
+            cfg, diff_apk, other_evidence, full=False)
+        if other_inspect:
+            try:
+                other_manifest = json.loads(other_inspect.read_text(encoding="utf-8"))
+                artifacts["diff_other_inspect"] = other_inspect
+            except (OSError, json.JSONDecodeError):
+                warn("no se pudo leer el manifest del APK comparado; diff local sigue")
+        elif not other_result.ok:
+            warn("REA no obtuvo el manifest del APK comparado; el diff estatico omite deep links/permisos declarados")
+        other_report = static_analysis.analyze_apk(diff_apk, other_manifest)
+        diff_data = static_analysis.compare_reports(static_report, other_report)
+        static_diff_paths = {
+            "static_diff_json": analysis / "STATIC_DIFF.json",
+            "static_diff_report": analysis / "STATIC_DIFF.md",
+        }
+        static_diff_paths["static_diff_json"].write_text(
+            json.dumps(diff_data, indent=2, ensure_ascii=False), encoding="utf-8")
+        static_diff_paths["static_diff_report"].write_text(
+            static_analysis.render_diff_markdown(diff_data), encoding="utf-8")
+        artifacts.update(static_diff_paths)
+        ok("diff estatico -> " + str(static_diff_paths["static_diff_report"]))
+
     notes, unknowns = "", []
     if not args.no_agent:
         info("Paso 2/3 · analisis profundo con el agente (MCP + IA)")
@@ -306,7 +358,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
                     ANALYSIS_OBJECTIVE.format(package=package,
                                               apk=str(staged)),
                     max_turns=args.turns,
-                    context=summary_for_prompt(analysis) if (analysis / "ANALYSIS.md").is_file() else "",
+                    context=static_analysis.render_markdown(static_report)[:10000],
                 )
                 notes = _strip_unknowns(run.final_text) or "(sin notas)"
                 unknowns = agent_module._parse_unknowns(run.final_text)
@@ -1033,6 +1085,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="intenta el comando de firma aparte de REA (experimental)")
     s.add_argument("--continue-on-error", action="store_true",
                    help="sigue aunque la descompilacion falle")
+    s.add_argument("--diff", default=None, metavar="OTRO.apk",
+                   help="compara el APK actual con otro (endpoints, permisos, SDK, licencias)")
     s.add_argument("--no-vcs", action="store_true", help="no crear repo git")
     s.add_argument("--no-stream", action="store_true", help="sin streaming")
     s.set_defaults(func=cmd_analyze)

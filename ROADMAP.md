@@ -9,8 +9,8 @@ Referencias: `archivo:línea` aproximada y módulo afectado.
 
 - **Tier 0 — HECHO y validado contra REA 6.7.0 real y el APK `org.fdroid.fdroid` 1.21.1.**
   Ver "Hallazgos reales" al final del Tier 0.
-- **Tier 1.1–1.6 — HECHOS**: autocorrección de build, git por turno, streaming, salidas estructuradas, análisis visual multimodal e inferencia geométrica de layouts.
-- **Siguiente: Tier 1.7 — analizador estático independiente de REA.**
+- **Tier 1.1–1.7 — HECHOS**: autocorrección de build, versionado, streaming, salidas estructuradas, visión, layout y análisis estático de APK.
+- **Siguiente: Tier 1.8 — navegación real e internacionalización.**
 
 ## Tier 0 — Validar antes de seguir añadiendo (riesgo alto, coste bajo)
 
@@ -84,13 +84,14 @@ El plan y los análisis dependen de prosa. Usar `response_format: {type: json_sc
 - Fallback explícito y conservador cuando faltan bounds: mantiene orden en columna y registra diagnóstico, sin afirmar detecciones geométricas.
 - Pruebas con pantallas sintéticas 2×2, contenedores anidados, app bar, bottom nav, FAB y bounds ausentes.
 
-### 1.7 Analizador estático propio (independiente de REA)
-Cuando JADX/REA falla, hoy no hay nada. Añadir análisis sobre el APK y sobre el output de jadx:
-- URLs/endpoints y hosts, deep links del manifest, Firebase/Google Services config, permisos usados vs declarados.
-- Secretos por **regex + entropía de Shannon** (mejor que el filtro por nombre de clave actual).
-- Huella de SDKs/trackers conocidos (lista de paquetes), y dependencias con licencia copyleft → `NOTICE.md`.
-- `analyze --diff otro.apk`: cambios entre versiones (permisos nuevos, endpoints nuevos).
-- Valor: alto, funciona sin red ni modelo. Esfuerzo: 1–2 días.
+### 1.7 Analizador estático propio (independiente de REA) — ✅ hecho
+- Nuevo `static_analysis.py`: inspecciona strings y paths del ZIP/APK con límites de tamaño/entradas; no ejecuta el paquete.
+- Detecta URLs/hosts (query strings redactadas), Firebase config, deep links del manifest, referencias literales de permisos, SDKs/frameworks conocidos y posibles secretos por patrones + entropía de Shannon.
+- **Nunca persiste valores de secretos**: se guardan tipo, archivo, confianza, longitud y entropía opcional; candidatos de alta entropía se marcan para revisión y el umbral se calibró contra F-Droid real.
+- Inventario de licencias copyleft y `analysis/NOTICE.md` con advertencias, sin copiar textos de licencias.
+- `analyze --diff otro.apk` escribe `STATIC_DIFF.md/.json`; si falta el XML de manifest de cualquiera de los APK, no declara falsos cambios de permisos/deep links.
+- Artefactos `STATIC_ANALYSIS.md/.json` se generan aun con `--no-agent`; REA aporta el XML del manifest cuando está disponible.
+- Pruebas sobre APK ZIP sintéticos y prueba real de lectura de `org.fdroid.fdroid` 1.21.1; los hallazgos estáticos se presentan como indicios, no como comportamiento probado.
 
 ### 1.8 Navegación y recursos del proyecto generado
 - `AppRoot.kt` usa un `var current` a mano: generar un **NavHost** real (Compose Navigation / go_router / react-router) con el grafo deducido de actividades + orden de capturas.
