@@ -114,6 +114,24 @@ servicios externos para su interfaz. Las capturas se procesan localmente, salvo
 que actives el botón de análisis visual opcional, que puede enviarlas al proveedor
 multimodal configurado.
 
+### Ejecutable único de rea-termux para Termux
+
+Si quieres empaquetar **la propia herramienta** como un ejecutable (no como APK):
+
+```bash
+bash scripts/termux-bootstrap.sh --binary
+./dist/rea-termux --version
+./dist/rea-termux gui
+```
+
+El empaquetador usa PyInstaller y construye dentro del Termux actual para su
+arquitectura/ABI. El binario reúne Python y las dependencias Python, pero **no**
+incluye Node/REA, Java/JADX ni las herramientas Android: siguen instalándose
+aparte. No es un APK ni un binario genérico para escritorio u otras arquitecturas.
+PyInstaller tiene correcciones recientes para Python/Termux, aunque su soporte allí
+sigue siendo no oficial; la compilación y prueba final deben hacerse en un Termux
+real.
+
 ## Proveedores (9router / Omniroute)
 
 ```bash
@@ -378,10 +396,10 @@ Herramientas que el agente tiene en el chat (además de las de REA):
 ## Estado y pruebas
 
 ```bash
-python -m pytest -q     # 137 pruebas
+python -m pytest -q     # 141 pruebas
 ```
 
-Cubren cliente MCP, fallback entre proveedores, análisis APK, herramientas Android, UI/capturas, generación por stack, memoria/sesiones, auto-reparación, Git y servidor gráfico local (loopback, token y endpoints). La integración gráfica se probó en el sandbox; falta validarla en un teléfono Termux real y conectar el navegador Android/ADB del dispositivo.
+Cubren cliente MCP, fallback entre proveedores, análisis APK, herramientas Android, UI/capturas, generación por stack, memoria/sesiones, auto-reparación, Git, servidor gráfico local y contrato del empaquetador Termux. El empaquetador se prueba en sandbox con comprobaciones y guardas; falta compilar/ejecutar el ejecutable en un teléfono Termux real.
 
 ## Licencia
 

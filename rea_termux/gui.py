@@ -140,6 +140,18 @@ def _load_json(raw: bytes) -> dict[str, Any]:
     return data
 
 
+def _child_command(args: tuple[str, ...] | list[str], *, config_path: str | None = None,
+                   frozen: bool | None = None, executable: str | None = None) -> list[str]:
+    """Construye argv tanto para Python instalado como para el binario congelado."""
+    is_frozen = getattr(sys, "frozen", False) if frozen is None else frozen
+    exe = executable or sys.executable
+    cmd = [exe] if is_frozen else [exe, "-m", "rea_termux"]
+    if config_path:
+        cmd.extend(["--config", str(Path(config_path).expanduser())])
+    cmd.extend(args)
+    return cmd
+
+
 def run_gui(*, config_path: str | None = None, port: int = 8765,
             open_browser: bool = True) -> int:
     """Arranca el panel local; bloquea hasta Ctrl-C."""
@@ -173,11 +185,7 @@ def run_gui(*, config_path: str | None = None, port: int = 8765,
         state["suggested_package"] = saved_answers.get("package_id", "")
 
     def child_args(*args: str) -> list[str]:
-        cmd = [sys.executable, "-m", "rea_termux"]
-        if config_path:
-            cmd.extend(["--config", str(Path(config_path).expanduser())])
-        cmd.extend(args)
-        return cmd
+        return _child_command(args, config_path=config_path)
 
     def start_job(title: str, actions: list[tuple[str, list[str]]], *,
                   on_success: Any = None, cleanup: Path | None = None) -> dict[str, str]:

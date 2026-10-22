@@ -12,6 +12,7 @@
 #   bash scripts/termux-bootstrap.sh --shims      # solo los wrappers
 #   bash scripts/termux-bootstrap.sh --rea        # solo prefetch de rea-agents
 #   bash scripts/termux-bootstrap.sh --android-tools # APKTool/aapt/apksigner/adb
+#   bash scripts/termux-bootstrap.sh --binary      # empaqueta dist/rea-termux en Termux
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -143,6 +144,14 @@ EOF
 
 }
 
+do_binary() {
+  need_termux
+  pkg_install python clang make pkg-config zlib
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  bash "$script_dir/build-termux-binary.sh"
+}
+
 do_rea() {
   command -v npx >/dev/null 2>&1 || die "falta npx: pkg install nodejs npm"
   say "prefetch rea-agents@${REA_VERSION} (puede tardar)"
@@ -156,6 +165,7 @@ main() {
     --shims) do_shims ;;
     --rea)   do_rea ;;
     --android-tools) do_android_tools ;;
+    --binary) do_binary ;;
     "")      do_packages; do_jadx; do_shims; do_rea ;;
     *)       die "opcion desconocida: $only" ;;
   esac

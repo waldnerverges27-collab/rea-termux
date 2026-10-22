@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from rea_termux.gui import PAGE, _inside, _load_json, _safe_screen, _safe_slug
+from rea_termux.gui import PAGE, _child_command, _inside, _load_json, _safe_screen, _safe_slug
 from rea_termux.cli import build_parser
 
 
@@ -38,6 +38,14 @@ def test_gui_json_payload_requires_object_and_is_bounded():
         _load_json(b'[1,2]')
     with pytest.raises(ValueError):
         _load_json(b"x" * (256 * 1024 + 1))
+
+
+def test_child_commands_work_for_python_and_frozen_executable():
+    assert _child_command(("doctor",), executable="python", frozen=False) == [
+        "python", "-m", "rea_termux", "doctor"]
+    assert _child_command(("doctor",), config_path="~/cfg.toml", executable="rea-termux",
+                          frozen=True) == ["rea-termux", "--config", str(Path.home() / "cfg.toml"),
+                                           "doctor"]
 
 
 def test_gui_parser_and_mobile_wizard_copy():

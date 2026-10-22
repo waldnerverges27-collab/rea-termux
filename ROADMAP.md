@@ -9,8 +9,8 @@ Referencias: `archivo:línea` aproximada y módulo afectado.
 
 - **Tier 0 — HECHO y validado contra REA 6.7.0 real y el APK `org.fdroid.fdroid` 1.21.1.**
   Ver "Hallazgos reales" al final del Tier 0.
-- **Tier 1.1–1.7 — HECHOS**: autocorrección de build, versionado, streaming, salidas estructuradas, visión, layout y análisis estático de APK.
-- **Siguiente: Tier 1.8 — panel web local para reducir pasos de terminal.**
+- **Tier 1.1–1.9 — implementados y probados en sandbox**: autocorrección, VCS, streaming, salidas estructuradas, visión/layout, análisis APK, panel gráfico y empaquetado PyInstaller.
+- **Siguiente: Tier 1.10 — navegación real e internacionalización.**
 
 ## Tier 0 — Validar antes de seguir añadiendo (riesgo alto, coste bajo)
 
@@ -100,7 +100,13 @@ El plan y los análisis dependen de prosa. Usar `response_format: {type: json_sc
 - Retoma el workspace analizado más reciente al reiniciar el panel; los comandos CLI siguen disponibles para automatización y diagnóstico.
 - Pruebas: helpers, guardas de ruta, servidor HTTP local, autorización de sesión y carga de página. **Pendiente validación visual en Android/Termux real.**
 
-### 1.9 Navegación y recursos del proyecto generado
+### 1.9 Empaquetado de rea-termux para Termux — primera versión implementada
+- Extra opcional `freeze` con PyInstaller >= 6.20; `scripts/build-termux-binary.sh` crea un ejecutable `dist/rea-termux` para la arquitectura del Termux donde se construye.
+- `termux-bootstrap.sh --binary` instala el toolchain C y dispara el empaquetado; el builder comprueba el entorno y smoke-testea `--version`, `gui --help` y `doctor --help`.
+- El modo congelado relanza subcomandos del panel usando el propio ejecutable. Node/REA, Java/JADX y las herramientas Android se mantienen como dependencias del sistema.
+- Pruebas locales: syntax, contrato del builder y rechazo de Linux fuera de Termux. **Pendiente compilar y ejecutar en dispositivo Termux real; el soporte PyInstaller/Termux es no oficial.**
+
+### 1.10 Navegación y recursos del proyecto generado
 - `AppRoot.kt` usa un `var current` a mano: generar un **NavHost** real (Compose Navigation / go_router / react-router) con el grafo deducido de actividades + orden de capturas.
 - **i18n**: extraer textos a `strings.xml` / ARB / JSON de traducciones en vez de hardcodearlos en el código.
 - Valor: medio-alto (el esqueleto pasa a ser una app). Esfuerzo: 6 h.
